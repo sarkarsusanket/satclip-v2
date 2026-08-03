@@ -273,3 +273,29 @@ class LocationEncoder(nn.Module):
     def forward(self, x):
         x = self.posenc(x)
         return self.nnet(x)
+
+
+# import torch
+# import torch.nn as nn
+
+
+
+class LocationEncoder(nn.Module):
+    def __init__(self, capsule, projection, sigma=[2**0, 2**4, 2**8]):
+        super(LocationEncoder, self).__init__()
+        self.sigma = sigma
+        self.n = len(self.sigma)
+        self.capsule = capsule
+        self.projection = projection
+
+        for i, s in enumerate(self.sigma):
+            self.add_module('LocEnc' + str(i), self.capsule(sigma=s))
+
+    def forward(self, location):
+        location = self.projection(location)
+        location_features = torch.zeros(location.shape[0], 64).to(location.device)
+
+        for i in range(self.n):
+            location_features += self._modules['LocEnc' + str(i)](location)
+        
+        return location_features

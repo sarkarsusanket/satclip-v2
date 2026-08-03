@@ -1,11 +1,15 @@
 from datetime import datetime
 from pathlib import Path
 
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+
+
 import lightning.pytorch
 import torch
 from datamodules.s2geo_dataset import S2GeoDataModule
 from lightning.pytorch.cli import LightningCLI
-from loss import SatCLIPLoss
+from loss import ContrastiveLoss, RelationalLoss, ReconstructionLoss, SilhouetteLoss, MarginLoss
 from model import SatCLIP
 
 torch.set_float32_matmul_precision('high')
@@ -13,24 +17,24 @@ torch.set_float32_matmul_precision('high')
 class SatCLIPLightningModule(lightning.pytorch.LightningModule):
     def __init__(
         self,
-        embed_dim=512,
+        embed_dim=64,
         image_resolution=256,
         vision_layers=12,
-        vision_width=768,
+        vision_width=1024,
         vision_patch_size=32,
         in_channels=4,
-        le_type="grid",
+        le_type="sphericalharmonics",
         pe_type="siren",
         frequency_num=16,
         max_radius=260,
         min_radius=1,
-        legendre_polys=16,
+        legendre_polys=40,
         harmonics_calculation="analytic",
         sh_embedding_dims=32,
         learning_rate=1e-4,
         weight_decay=0.01,
-        num_hidden_layers=2,
-        capacity=256,
+        num_hidden_layers=8,
+        capacity=512,
     ) -> None:
         super().__init__()
 
@@ -53,24 +57,84 @@ class SatCLIPLightningModule(lightning.pytorch.LightningModule):
             capacity=capacity,
         )
 
-        self.loss_fun = SatCLIPLoss()
+        self.contraloss_fn = ContrastiveLoss()
+        self.relatloss_fn = RelationalLoss(temperature=0.5)
+        self.silhouette_fn = SilhouetteLoss()
+        self.marginloss_fn = MarginLoss()
+        self.reconloss_fn = ReconstructionLoss()
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.save_hyperparameters()
 
-    def common_step(self, batch, batch_idx):
-        images = batch["image"]
-        t_points = batch["point"].float()
-        logits_per_image, logits_per_coord = self.model(images, t_points)
-        return self.loss_fun(logits_per_image, logits_per_coord)
+    def _get_quantile(self, dist):
+        flat = dist.float().reshape(-1)
+        q = torch.tensor([0.01], device=flat.device)
 
-    def training_step(self, batch, batch_idx):
-        loss = self.common_step(batch, batch_idx)
+        max_samples = 2_000_000
+        if flat.numel() > max_samples:
+            idx = torch.randint(0, flat.numel(), (max_samples,), device=flat.device)
+            flat = flat[idx]
+
+        # compute on CPU to further reduce GPU pressure (optional)
+        quantiles = torch.quantile(flat.cpu(), q.cpu()).to(dist.device)
+
+        return quantiles[0].item()
+
+
+    def build_pos_mask(self, dino_feats, points):
+        # 1. Spatial Distance: Are they physically close?
+        # points: [N, D] -> spatial_dist: [N, N]
+        # spatial_dist = torch.cdist(points, points)
+        # spatial_mask = spatial_dist < self._get_quantile(spatial_dist)
+
+        # 2. Visual Distance: Do they look similar? Right nw only keeping visual similar
+        rgb_dist = torch.cdist(dino_feats, dino_feats)
+        visual_mask = rgb_dist < self._get_quantile(rgb_dist)
+
+        # 3. Combine: A pair is positive only if it satisfies BOTH criteria
+        # This prevents grouping two similar-looking objects that are far apart
+        pos_mask = visual_mask#(spatial_mask & visual_mask).float()
+
+        # Self-positive (diagonal)
+        pos_mask.fill_diagonal_(1.0)
+
+        return pos_mask
+
+    def common_step(self, batch):
+        dino_image = batch['dino']
+        t_points = batch["point"].float()
+        pos_mask = self.build_pos_mask(dino_image, t_points)
+
+        # Forward Pass
+        image_feats, point_feats, logits_per_image, logits_per_coord, logit_scale = self.model(dino_image, t_points)
+
+        contraloss = self.contraloss_fn(logits_per_image, logits_per_coord, pos_mask)
+        relatloss = self.relatloss_fn(image_feats, point_feats)
+        silhloss = self.silhouette_fn(point_feats, pos_mask)
+        # reconloss = self.reconloss_fn(dino_image, reconstructed_image)
+        # marginloss = self.marginloss_fn(image_feats, point_feats, pos_mask)
+        logit_loss = (logit_scale).mean()
+
+        self.log("contra_loss", contraloss)
+        self.log("relational_loss", relatloss)
+        self.log("silhoutte_loss", silhloss)
+
+        # self.log("margin_loss", marginloss)
+        self.log("logitscale_loss", logit_loss)
+        
+        self.log("logit_scale", logit_scale)
+
+        loss = contraloss + 0.3*relatloss + 0.3*silhloss + 0.01*logit_loss # Regulatize too high logit scales
+
+        return loss
+
+    def training_step(self, batch):
+        loss = self.common_step(batch)
         self.log("train_loss", loss)
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        loss = self.common_step(batch, batch_idx)
+    def validation_step(self, batch):
+        loss = self.common_step(batch)
         self.log("val_loss", loss)
         return loss
 
@@ -122,8 +186,9 @@ def cli_main(default_config_filename="./configs/default.yaml"):
             overwrite=True,
         ),
         trainer_defaults={
-            "accumulate_grad_batches": 16,
-            "log_every_n_steps": 10,
+            "accumulate_grad_batches": 1,
+            "log_every_n_steps": 1,
+            "strategy": "ddp_find_unused_parameters_true",
         },
         parser_kwargs={"default_config_files": [default_config_filename]},
         seed_everything_default=0,
@@ -150,12 +215,13 @@ def cli_main(default_config_filename="./configs/default.yaml"):
 
 
 if __name__ == "__main__":
-    config_fn = "./configs/default.yaml"
+    config_fn = r"/home/susanket/satclip/sentinel2/satclip/satclip/configs/default.yaml"
 
-    #A100 go vroom vroom 🚗💨
+    torch.multiprocessing.set_sharing_strategy('file_system')
+
     if torch.cuda.get_device_name(device=0)=='NVIDIA A100 80GB PCIe':
-        torch.backends.cuda.matmul.allow_tf32 = True
-        print('Superfastmode! 🚀')
+        torch.set_float32_matmul_precision("highest")
+        print('Model go vroom! 🚀')
     else:
-        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.set_float32_matmul_precision("high")
     cli_main(config_fn)

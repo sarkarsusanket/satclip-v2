@@ -1,6 +1,11 @@
 from collections import OrderedDict
 from typing import Tuple, Union, Optional
 
+import os
+
+from shapely.geometry import point
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -12,6 +17,46 @@ import torchgeo.models
 from torchgeo.models import ResNet18_Weights, ResNet50_Weights, ViTSmall16_Weights
 from location_encoder import get_positional_encoding, get_neural_network, LocationEncoder
 from datamodules.s2geo_dataset import S2Geo
+import positional_encoding as PE
+
+
+# Constants
+A1 = 1.340264
+A2 = -0.081106
+A3 = 0.000893
+A4 = 0.003796
+SF = 66.50336
+
+def equal_earth_projection(L):
+    latitude = L[:, 0]
+    longitude = L[:, 1]
+    latitude_rad = torch.deg2rad(latitude)
+    longitude_rad = torch.deg2rad(longitude)
+    sin_theta = (torch.sqrt(torch.tensor(3.0)) / 2) * torch.sin(latitude_rad)
+    theta = torch.asin(sin_theta)
+    denominator = 3 * (9 * A4 * theta**8 + 7 * A3 * theta**6 + 3 * A2 * theta**2 + A1)
+    x = (2 * torch.sqrt(torch.tensor(3.0)) * longitude_rad * torch.cos(theta)) / denominator
+    y = A4 * theta**9 + A3 * theta**7 + A2 * theta**3 + A1 * theta
+    return (torch.stack((x, y), dim=1) * SF) / 180
+
+class LocationEncoderCapsule(nn.Module):
+    def __init__(self, sigma):
+        super(LocationEncoderCapsule, self).__init__()
+        rff_encoding = PE.GaussianEncoding(sigma=sigma, input_size=2, encoded_size=256)
+        self.km = sigma
+        self.capsule = nn.Sequential(rff_encoding,
+                                     nn.Linear(512, 1024),
+                                     nn.ReLU(),
+                                     nn.Linear(1024, 512),
+                                     nn.ReLU(),
+                                     nn.Linear(512, 256),
+                                     nn.ReLU())
+        self.head = nn.Sequential(nn.Linear(256, 64))
+
+    def forward(self, x):
+        x = self.capsule(x)
+        x = self.head(x)
+        return x
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -197,6 +242,20 @@ class ResidualAttentionBlock(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
+class MLP(nn.Module):
+    def __init__(self, input_dim, dim_hidden, num_layers, out_dims):
+        super(MLP, self).__init__()
+
+        layers = []
+        layers += [nn.Linear(input_dim, dim_hidden, bias=True), nn.ReLU()] # input layer
+        layers += [nn.Linear(dim_hidden, dim_hidden, bias=True), nn.ReLU()] * num_layers # hidden layers
+        layers += [nn.Linear(dim_hidden, out_dims, bias=True)] # output layer
+
+        self.features = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.features(x)
+
 
 class Transformer(nn.Module):
     def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
@@ -245,6 +304,15 @@ class VisionTransformer(nn.Module):
 
         return x
 
+class ProjLayer(nn.Module):
+    def __init__(self, width, output_dim) -> None:
+        super().__init__()
+        scale = width ** -0.5
+        self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
+    def forward(self, x:torch.Tensor):
+        x = x@self.proj
+        return x
+
 class SatCLIP(nn.Module):
     def __init__(self,
                  embed_dim: int,
@@ -270,111 +338,58 @@ class SatCLIP(nn.Module):
                  **kwargs
                  ):
         super().__init__()
-            
-        if isinstance(vision_layers, (tuple, list)):
-            print('using modified resnet')
-            vision_heads = vision_width * 32 // 64
-            self.visual = ModifiedResNet(
-                layers=vision_layers,
-                output_dim=embed_dim,
-                heads=vision_heads,
-                input_resolution=image_resolution,
-                width=vision_width,
-                in_channels=in_channels
-            )
-            
-        elif vision_layers == 'moco_resnet18':
-            print('using pretrained moco resnet18')
-            weights = ResNet18_Weights.SENTINEL2_ALL_MOCO
-            in_chans = weights.meta["in_chans"]
-            self.visual = timm.create_model("resnet18", in_chans=in_chans, num_classes=embed_dim)
-            self.visual.load_state_dict(weights.get_state_dict(progress=True), strict=False)
-            self.visual.requires_grad_(False)
-            self.visual.fc.requires_grad_(True)
+        
+        self.dino_proj = ProjLayer(width = 1024, output_dim=embed_dim)
+        # self.terramind_proj = ProjLayer(width = 768, output_dim=256)
+        
+        # self.fusion_proj = ProjLayer(width = 512, output_dim = embed_dim)
 
-        elif vision_layers == 'moco_resnet50':
-            print('using pretrained moco resnet50')
-            weights = ResNet50_Weights.SENTINEL2_ALL_MOCO
-            in_chans = weights.meta["in_chans"]
-            self.visual = timm.create_model("resnet50", in_chans=in_chans, num_classes=embed_dim)
-            self.visual.load_state_dict(weights.get_state_dict(progress=True), strict=False)
-            self.visual.requires_grad_(False)
-            self.visual.fc.requires_grad_(True)
-            
-        elif vision_layers == 'moco_vit16':
-            print('using pretrained moco vit16')
-            weights = ViTSmall16_Weights.SENTINEL2_ALL_MOCO
-            in_chans = weights.meta["in_chans"]
-            self.visual = timm.create_model("vit_small_patch16_224", in_chans=in_chans, num_classes=embed_dim)
-            self.visual.load_state_dict(weights.get_state_dict(progress=True), strict=False)
-            self.visual.requires_grad_(False)
-            self.visual.head.requires_grad_(True)
-
-        else:
-            print('using vision transformer')
-            vision_heads = vision_width // 64
-            self.visual = VisionTransformer(
-                input_resolution=image_resolution,
-                patch_size=vision_patch_size,
-                width=vision_width,
-                layers=vision_layers,
-                heads=vision_heads,
-                output_dim=embed_dim,
-                in_channels=in_channels
-            )
+        self.recon_point = ProjLayer(width = embed_dim, output_dim=1024)
         
         self.posenc = get_positional_encoding(name=le_type, harmonics_calculation=harmonics_calculation, legendre_polys=legendre_polys, min_radius=min_radius, max_radius=max_radius, frequency_num=frequency_num).double()
         self.nnet = get_neural_network(name=pe_type, input_dim=self.posenc.embedding_dim, num_classes=embed_dim, dim_hidden=capacity, num_layers=num_hidden_layers).double()
-        self.location = LocationEncoder(self.posenc, 
-                                        self.nnet
-        ).double()
         
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        # self.location = LocationEncoder(self.posenc, self.nnet).double()
+        self.location = LocationEncoder(LocationEncoderCapsule, equal_earth_projection).double()
+        
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.5))
 
-        self.initialize_parameters()
+    def encode_image(self, dino_image):
+        return self.dino_proj(dino_image)
+        # terramind_proj = self.terramind_proj(terramind_image)
 
-    def initialize_parameters(self):
-        if isinstance(self.visual, ModifiedResNet):
-            if self.visual.attnpool is not None:
-                std = self.visual.attnpool.c_proj.in_features ** -0.5
-                nn.init.normal_(self.visual.attnpool.q_proj.weight, std=std)
-                nn.init.normal_(self.visual.attnpool.k_proj.weight, std=std)
-                nn.init.normal_(self.visual.attnpool.v_proj.weight, std=std)
-                nn.init.normal_(self.visual.attnpool.c_proj.weight, std=std)
+        # combined = torch.cat([dino_proj, terramind_proj], dim=-1) # Concat the two features
 
-            for resnet_block in [self.visual.layer1, self.visual.layer2, self.visual.layer3, self.visual.layer4]:
-                for name, param in resnet_block.named_parameters():
-                    if name.endswith("bn3.weight"):
-                        nn.init.zeros_(param)
-
-    @property
-    def dtype(self):
-        if isinstance(self.visual, timm.models.vision_transformer.VisionTransformer):
-            return self.visual.patch_embed.proj.weight.dtype
-        else:
-            return self.visual.conv1.weight.dtype
-
-    def encode_image(self, image):
-        return self.visual(image.type(self.dtype))
+        # return self.fusion_proj(combined)
 
     def encode_location(self, coords):
         return self.location(coords.double())
 
-    def forward(self, image, coords):
+    def decode_image(self, image_features):
+        reconstructed_dino = self.recon_dino(image_features)
+        reconstructed_tm = self.recon_tm(image_features)
 
-        image_features = self.encode_image(image)     
+        return reconstructed_dino, reconstructed_tm
+
+    def decode_location(self, point_feats):
+        return self.recon_point(point_feats)
+
+    def forward(self, dino_image, coords):
+        image_features = self.encode_image(dino_image)     
         location_features = self.encode_location(coords).float()
+        # reconstructed_image = self.decode_location(location_features)
         # normalized features
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
         location_features = location_features / location_features.norm(dim=1, keepdim=True)
 
         # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
+        logit_scale = torch.clamp(logit_scale, max=20)
         logits_per_image = logit_scale * image_features @ location_features.t()
         logits_per_location = logits_per_image.t()
 
         # shape = [global_batch_size, global_batch_size]
-        return logits_per_image, logits_per_location
+        return image_features, location_features, logits_per_image, logits_per_location, logit_scale
 
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""

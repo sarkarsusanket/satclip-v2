@@ -1,5 +1,9 @@
-import os
 from typing import Any, Callable, Dict, Optional
+
+import tqdm
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+
 
 import pandas as pd
 import rasterio
@@ -19,9 +23,9 @@ CHECK_MIN_FILESIZE = 10000 # 10kb
 class S2GeoDataModule(pl.LightningDataModule):
     def __init__(
         self,
-        data_dir: str = "/data/geoclip_s2",
-        batch_size: int = 64,
-        num_workers: int = 6,
+        data_dir: str = r"/data/susanket/sentinel",
+        batch_size: int = 20480,
+        num_workers: int = 92,
         crop_size: int = 256,
         val_random_split_fraction: float = 0.1,
         transform: str = 'pretrained',
@@ -85,10 +89,6 @@ class S2Geo(NonGeoDataset):
     """
 
     validation_filenames = [
-        "index.csv",
-        "images/",
-        "images/patch_0.tif",
-        "images/patch_99999.tif",
     ]
 
     def __init__(
@@ -110,27 +110,54 @@ class S2Geo(NonGeoDataset):
         if not self._check_integrity():
             raise RuntimeError("Dataset not found or corrupted.")
 
-        index_fn = "index.csv"
+        index_fn = r"/data/susanket/sentinel/dinov2-1M/index_600k.csv"
 
-        df = pd.read_csv(os.path.join(self.root, index_fn))
+        df = pd.read_csv(index_fn)
         self.filenames = []
         self.points = []
 
         n_skipped_files = 0
-        for i in range(df.shape[0]):
-            filename = os.path.join(self.root, "images", df.iloc[i]["fn"])
+        for i in tqdm.tqdm(range(df.shape[0])):
+            # orig_image = os.path.join(r"/data/susanket/sentinel", "images1M", df.iloc[i]["name"]+".npy")
+            dino_file = os.path.join(self.root, "dinov2-1M/cls", df.iloc[i]["name"]+".npy")
+            # terramind_file = os.path.join(self.root, "terramind/S2L2A", df.iloc[i]["fn"].replace("npy", "tif.npy"))
 
-            if os.path.getsize(filename) < CHECK_MIN_FILESIZE:
+            # print(dino_file, terramind_file)
+            if not os.path.exists(dino_file):
                 n_skipped_files += 1
                 continue
 
-            self.filenames.append(filename)
+            self.filenames.append(dino_file)
             self.points.append(
-                (df.iloc[i]["lon"], df.iloc[i]["lat"])
+                (df.iloc[i]["lat"], df.iloc[i]["lon"])
             )
 
         print(f"skipped {n_skipped_files}/{len(df)} images because they were smaller "
               f"than {CHECK_MIN_FILESIZE} bytes... they probably contained nodata pixels")
+
+    def validate_data(self, file_path, threshold=0.75):
+        """
+        Checks if the file exists, is not empty, and has > threshold valid data.
+        """
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            return False
+        
+        try:
+            # Load the image (assuming .npy format based on previous context)
+            img = np.load(file_path)
+            rgb_img = img[..., :3][..., ::-1].astype(np.float32)
+            # True (1) means data exists, False (0) means it's empty/black
+            mask = (rgb_img.max(axis=-1) > 0)
+
+            # 2. Calculate the percentage
+            # Since True=1 and False=0, the mean gives the percentage in decimal form
+            percent_data = np.mean(mask)
+
+            # print(f"Area with data: {percent_data:.2f}%")
+            
+            return percent_data > threshold
+        except Exception:
+            return False
 
     def __getitem__(self, index: int) -> Dict[str, Tensor]:
         """Return an index within the dataset.
@@ -142,15 +169,11 @@ class S2Geo(NonGeoDataset):
         point = torch.tensor(self.points[index])
         sample = {"point": point}
 
-        if self.mode == "both":
-            with rasterio.open(self.filenames[index]) as f:
-                data = f.read().astype(np.float32)
-            #img = torch.tensor(data)
-            sample["image"] = data
-            
-        if self.transform is not None:
-            sample = self.transform(sample)
-            
+        # Open the dino file
+        image_path = self.filenames[index]
+        image = np.load(image_path).astype(np.float32)
+        sample["dino"] = image.squeeze(0)
+        
         return sample
 
     def __len__(self) -> int:

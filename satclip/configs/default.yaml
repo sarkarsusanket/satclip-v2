@@ -2,37 +2,51 @@
 seed_everything: 0
 trainer:
   logger:
-    class_path: lightning.pytorch.loggers.TensorBoardLogger
-    init_args:
-      save_dir: 'satclip_logs'
-      name: 'satclip'
-      version: 'satclip'
+    - class_path: lightning.pytorch.loggers.TensorBoardLogger
+      init_args:
+        save_dir: '/data/susanket/sentinel/training'
+        name: '600k'
+        version: 'rff'
+
+    - class_path: lightning.pytorch.loggers.CSVLogger
+      init_args:
+        save_dir: '/data/susanket/sentinel/training'
+        name: '600k'
+        version: 'rff'
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         monitor: "val_loss"
         save_last: True
         filename: "{epoch}-{val_loss:.2f}"
-  max_epochs: 500
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: "val_loss"
+        patience: 10
+        mode: "min"
+        verbose: true
+        strict: true
+        check_on_train_epoch_end: false
+  max_epochs: 1000
 model:
-  embed_dim: 256
+  embed_dim: 64
   image_resolution: 256
   vision_layers: 4
-  vision_width: 128
+  vision_width: 1024
   vision_patch_size: 32
   in_channels: 13
   le_type: 'sphericalharmonics'
   frequency_num: 16
   max_radius: 0.01
   min_radius: 0.00001
-  legendre_polys: 32
+  legendre_polys: 40
   sh_embedding_dims: 32
   learning_rate: 0.0001
   num_hidden_layers: 2
   capacity: 256
 data:
-  data_dir: /data/s2
-  batch_size: 512
-  num_workers: 8
+  data_dir: /data/susanket/sentinel
+  batch_size: 20480
+  num_workers: 90
   val_random_split_fraction: 0.1
 watchmodel: True
