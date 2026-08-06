@@ -46,62 +46,53 @@ DATASETS = [
     # [11..23]=regression targets (median income, home value, etc.)
     # DatasetSpec(name="housing", path="data/housing.csv", task="reg", pred=(3, 10), target=(11, 23)),
     # example of a classification target range from a different CSV
-    # DatasetSpec(name="landcover", path="data/landcover.csv", task="class", pred=(0, 2), target=(3, 3)),
-    # DatasetSpec(name="Global AQI", path=rf"E:\Data\satclip\eval\aqi.csv", task="reg", pred=(0, 1), target=(2, 11)),
-    # DatasetSpec(name="Afrobarometer", path=rf"E:\Data\satclip\eval\afrobarometer_location_targets.csv", task="class", pred=(0, 1), target=(2, 24)),
+    DatasetSpec(name="Afrobarometer", path=rf"E:\Data\satclip\eval\afrobarometer_location_targets.csv", task="class", pred=(0, 1), target=(2, 24)),
     DatasetSpec(name="Airbnb Price", path=rf"E:\Data\satclip\eval\airbnb-price.csv", task="reg", pred=(1, 18), target=(0, 0)),
-    DatasetSpec(name="Crop Yeild", path=rf"E:\Data\satclip\eval\crop-yeild.csv", task="reg", pred=(0, 1), target=(2, 43)),
+    DatasetSpec(name="Crop Yeild", path=rf"E:\Data\satclip\eval\crop-yeild.csv", task="reg", pred=(0, 1), target=(2, 3)),
     DatasetSpec(name="EarthQuake", path=rf"E:\Data\satclip\eval\earthquake.csv", task="reg", pred=(0, 1), target=(2, 3)),
-    DatasetSpec(name="EV Charging", path=rf"E:\Data\satclip\eval\ev-charging-cost.csv", task="reg", pred=(0, 1), target=(2, 2)),
-    DatasetSpec(name="FEMA", path=rf"E:\Data\satclip\eval\fema.csv", task="reg", pred=(0, 21), target=(22, 23)),
+    DatasetSpec(name="FEMA", path=rf"E:\Data\satclip\eval\fema.csv", task="reg", pred=(22, 23), target=(0, 21)),
     DatasetSpec(name="Wealth Index", path=rf"E:\Data\satclip\eval\relative-wealth-index.csv", task="reg", pred=(1, 2), target=(3, 3)),
     DatasetSpec(name="USA Health", path=rf"E:\Data\satclip\eval\usa-cdchealth.csv", task="reg", pred=(41, 42), target=(0, 40)),
     DatasetSpec(name="USA Climate", path=rf"E:\Data\satclip\eval\usa-climate.csv", task="reg", pred=(36, 37), target=(0, 35)),
-
+    DatasetSpec(name="USA Socio-Vulnerability", path=rf"E:\Data\satclip\eval\usa-socialvulindex.csv", task="reg", pred=(98, 99), target=(0, 97)),
+    DatasetSpec(name="Bio Climatic", path=rf"E:\Data\satclip\eval\worldclim-bio.csv", task="reg", pred=(0, 1), target=(2, 21)),
 ]
 
 MODELS = [
     make_custom_loader(
             name="random-embeddings",
-            embed_fn = lambda lon, lat, dim=64: np.random.default_rng(42).standard_normal((len(lon), dim), dtype=np.float32),
+            embed_fn = lambda lon, lat, dim=256: np.random.default_rng(42).standard_normal((len(lon), dim), dtype=np.float32),
         ),
     make_custom_loader(
             name="raw-coords",
             embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
         ),
-    # make_custom_loader(
-    #         name="spherical-harmonics",
-    #         embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
-    #     ),
-    # make_custom_loader(
-    #         name="microsoft-satclip",
-    #         embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
-    #         satclip_repo_path=SATCLIP_REPO_PATH,
-    #     ),
-    # make_custom_loader(
-    #         name="satclip-v1",
-    #         embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
-    #         satclip_repo_path=SATCLIP_REPO_PATH,
-    #     ),
     make_satclip_loader(
-            name="satclip-v2-64dim",
+            name="spherical-harmonics",
             ckpt_path=rf"E:\Weights\satclip\satclip-v2\satclipv2-64dim.ckpt",
             satclip_repo_path=SATCLIP_REPO_PATH,
+            spherical_harmonics=1, # If spherical harmonics is 1 then the results of only sphericql harmonics
         ),
-    # add more checkpoints to compare, e.g. a larger backbone:
-    # make_satclip_loader(
-    #     name="satclip-resnet50-l40",
-    #     ckpt_path="satclip-resnet50-l40.ckpt",
-    #     satclip_repo_path=SATCLIP_REPO_PATH,
-    # ),
-    # a raw lat/lon baseline, for reference:
-    # make_custom_loader(
-    #     name="raw-coords",
-    #     embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
-    # ),
-    # wire in your own encoder (e.g. Global Location Encoder) the same way:
-    # make_custom_loader(
-    #     name="global-location-encoder",
-    #     embed_fn=lambda lon, lat: my_gle_model.embed(lon, lat),
-    # ),
+    make_satclip_loader(
+            name="microsoft-satclip",
+            ckpt_path=rf"E:\Weights\satclip\microsoft-satclip\satclip-vit16-l10.ckpt",
+            satclip_repo_path=SATCLIP_REPO_PATH,
+        ),
+    make_satclip_loader(
+            name="satclip-v1",
+            ckpt_path=rf"E:\Weights\satclip\satclip-v1\satclipv1.ckpt",
+            satclip_repo_path=SATCLIP_REPO_PATH,
+            # spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
+        ),
+    make_satclip_loader(
+            name="satclip-v2-64dim",
+            ckpt_path=rf"E:\Weights\satclip\dynamic-image\checkpoints\last-v1.ckpt",
+            satclip_repo_path=SATCLIP_REPO_PATH,
+        ),
+    make_satclip_loader(
+        name="satclip-v2-164dim-v2+sh",
+        ckpt_path=rf"E:\Weights\satclip\satclip-v2\dynamic-image\checkpoints\last-v1.ckpt",
+        satclip_repo_path=SATCLIP_REPO_PATH,
+        spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
+    ),
 ]

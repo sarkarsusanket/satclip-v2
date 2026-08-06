@@ -24,7 +24,7 @@ Output is one tidy CSV: rows = `(dataset, target)`, columns = model names.
 - **`models.py`** — `EmbeddingModel` wrapper + loaders. `make_satclip_loader`
   mirrors the SatCLIP demo notebook's `get_satclip(...)` call exactly (lon
   first, then lat). `make_custom_loader` wraps anything else.
-- **`run_eval.py`** — `python run_eval.py [--output eval_report.csv]`.
+- **`run.py`** — `python run.py [--output eval_report.csv]`.
 
 ## Declaring a dataset
 

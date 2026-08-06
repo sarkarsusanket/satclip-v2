@@ -349,8 +349,8 @@ class SatCLIP(nn.Module):
         self.posenc = get_positional_encoding(name=le_type, harmonics_calculation=harmonics_calculation, legendre_polys=legendre_polys, min_radius=min_radius, max_radius=max_radius, frequency_num=frequency_num).double()
         self.nnet = get_neural_network(name=pe_type, input_dim=self.posenc.embedding_dim, num_classes=embed_dim, dim_hidden=capacity, num_layers=num_hidden_layers).double()
         
-        # self.location = LocationEncoder(self.posenc, self.nnet).double()
-        self.location = LocationEncoder(LocationEncoderCapsule, equal_earth_projection).double()
+        self.location = LocationEncoder(self.posenc, self.nnet).double()
+        # self.location = LocationEncoder(LocationEncoderCapsule, equal_earth_projection).double()
         
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.5))
 
@@ -363,6 +363,8 @@ class SatCLIP(nn.Module):
         # return self.fusion_proj(combined)
 
     def encode_location(self, coords):
+        emb = self.location(coords.double())
+        print(f"Location embedding shape: {emb.shape}")
         return self.location(coords.double())
 
     def decode_image(self, image_features):
@@ -381,6 +383,8 @@ class SatCLIP(nn.Module):
         # normalized features
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
         location_features = location_features / location_features.norm(dim=1, keepdim=True)
+
+        print("Forward")
 
         # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
