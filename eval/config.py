@@ -35,8 +35,12 @@ import numpy as np
 from eval_embeddings import DatasetSpec
 from models import make_custom_loader, make_satclip_loader
 
-import warnings
+import warning
 warnings.filterwarnings("ignore", category=UserWarning)
+
+import sys
+sys.path.append(rf"D:\Code\satclip")
+from exp import infer
 
 
 SATCLIP_REPO_PATH = rf"D:\Code\satclip\satclip"  # path to your cloned+modified satclip repo
@@ -59,40 +63,48 @@ DATASETS = [
 ]
 
 MODELS = [
+    # make_custom_loader(
+    #         name="random-embeddings",
+    #         embed_fn = lambda lon, lat, dim=256: np.random.default_rng(42).standard_normal((len(lon), dim), dtype=np.float32),
+    #     ),
+    # make_custom_loader(
+    #         name="raw-coords",
+    #         embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
+    #     ),
+    # make_satclip_loader(
+    #         name="spherical-harmonics",
+    #         ckpt_path=rf"E:\Weights\satclip\satclip-v2\satclipv2-64dim.ckpt",
+    #         satclip_repo_path=SATCLIP_REPO_PATH,
+    #         spherical_harmonics=1, # If spherical harmonics is 1 then the results of only sphericql harmonics
+    #     ),
+    # make_satclip_loader(
+    #         name="microsoft-satclip",
+    #         ckpt_path=rf"E:\Weights\satclip\microsoft-satclip\satclip-vit16-l10.ckpt",
+    #         satclip_repo_path=SATCLIP_REPO_PATH,
+    #     ),
+    # make_satclip_loader(
+    #         name="satclip-v1",
+    #         ckpt_path=rf"E:\Weights\satclip\satclip-v1\satclipv1.ckpt",
+    #         satclip_repo_path=SATCLIP_REPO_PATH,
+    #         # spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
+    #     ),
+    # make_satclip_loader(
+    #         name="satclip-v2-64dim",
+    #         ckpt_path=rf"E:\Weights\satclip\dynamic-image\checkpoints\last-v1.ckpt",
+    #         satclip_repo_path=SATCLIP_REPO_PATH,
+    #     ),
+    # make_custom_loader(
+    #             name="raw-coords",
+    #             embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
+    #         ),
+    # make_satclip_loader(
+    #     name="satclip-v2-164dim-v2+sh",
+    #     ckpt_path=rf"E:\Weights\satclip\satclip-v2\dynamic-image\checkpoints\last-v1.ckpt",
+    #     satclip_repo_path=SATCLIP_REPO_PATH,
+    #     spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
+    # ),
     make_custom_loader(
-            name="random-embeddings",
-            embed_fn = lambda lon, lat, dim=256: np.random.default_rng(42).standard_normal((len(lon), dim), dtype=np.float32),
-        ),
-    make_custom_loader(
-            name="raw-coords",
-            embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
-        ),
-    make_satclip_loader(
-            name="spherical-harmonics",
-            ckpt_path=rf"E:\Weights\satclip\satclip-v2\satclipv2-64dim.ckpt",
-            satclip_repo_path=SATCLIP_REPO_PATH,
-            spherical_harmonics=1, # If spherical harmonics is 1 then the results of only sphericql harmonics
-        ),
-    make_satclip_loader(
-            name="microsoft-satclip",
-            ckpt_path=rf"E:\Weights\satclip\microsoft-satclip\satclip-vit16-l10.ckpt",
-            satclip_repo_path=SATCLIP_REPO_PATH,
-        ),
-    make_satclip_loader(
-            name="satclip-v1",
-            ckpt_path=rf"E:\Weights\satclip\satclip-v1\satclipv1.ckpt",
-            satclip_repo_path=SATCLIP_REPO_PATH,
-            # spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
-        ),
-    make_satclip_loader(
-            name="satclip-v2-64dim",
-            ckpt_path=rf"E:\Weights\satclip\dynamic-image\checkpoints\last-v1.ckpt",
-            satclip_repo_path=SATCLIP_REPO_PATH,
-        ),
-    make_satclip_loader(
-        name="satclip-v2-164dim-v2+sh",
-        ckpt_path=rf"E:\Weights\satclip\satclip-v2\dynamic-image\checkpoints\last-v1.ckpt",
-        satclip_repo_path=SATCLIP_REPO_PATH,
-        spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
-    ),
+                name="jepa",
+                embed_fn = lambda lon, lat: infer(lat, lon)[0],
+            ),
 ]

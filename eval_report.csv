@@ -1,10 +1,24 @@
-dataset,target,task_type,n_samples,random-embeddings,raw-coords,satclip-v2-64dim
-Airbnb Price,realSum,reg,51707,-0.03132170027402492,0.18156878993546433,0.2472486005511355
-Crop Yeild,whea,reg,1013107,-0.000552818409955691,0.6723522141195439,0.4088092873384702
-Crop Yeild,rice,reg,1013107,-0.0006282206144949676,0.5137397619717753,0.21427721749361917
-Crop Yeild,maiz,reg,1013107,-0.0006157575421148476,0.5319844667041163,0.30071130320223083
-Crop Yeild,barl,reg,1013107,-0.0006869802253512969,0.6494528726024084,0.364881032611313
-Crop Yeild,mill,reg,1013107,-0.0007432261377493532,0.5864051235276584,0.25796044171607924
-Crop Yeild,sorg,reg,1013107,-0.0007544237666627929,0.6392309404414271,0.30145609924342376
-Crop Yeild,ocer,reg,1013107,-0.0006932400472230427,0.6921430340439005,0.41283966394276983
-Crop Yeild,pota,reg,1013107,-0.0006940674836619642,0.548853127222739,0.3245019082609283
+dataset,target,task_type,n_samples,jepa
+Afrobarometer,EA_SVC_A,class,,
+Afrobarometer,EA_SVC_B,class,,
+Afrobarometer,EA_SVC_C,class,,
+Afrobarometer,EA_SVC_D,class,,
+Afrobarometer,EA_FAC_A,class,,
+Afrobarometer,EA_FAC_B,class,,
+Afrobarometer,EA_FAC_C,class,,
+Afrobarometer,EA_FAC_D,class,,
+Afrobarometer,EA_FAC_E,class,,
+Afrobarometer,EA_FAC_F,class,,
+Afrobarometer,EA_ROAD_A,class,,
+Afrobarometer,EA_ROAD_B,class,,
+Afrobarometer,EA_SEC_A,class,,
+Afrobarometer,EA_SEC_B,class,,
+Afrobarometer,EA_SEC_C,class,,
+Afrobarometer,Q91A,class,,
+Afrobarometer,Q91B,class,,
+Afrobarometer,Q91C,class,,
+Afrobarometer,Q92A,class,,
+Afrobarometer,Q92B,class,,
+Afrobarometer,Q93A,class,,
+Afrobarometer,Q93B,class,,
+Afrobarometer,URBRUR,class,,
