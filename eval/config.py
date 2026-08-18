@@ -33,14 +33,17 @@ function (lon: np.ndarray, lat: np.ndarray) -> np.ndarray of shape (N, D).
 """
 import numpy as np
 from eval_embeddings import DatasetSpec
-from models import make_custom_loader, make_satclip_loader
+from models import make_custom_loader, make_satclip_loader, make_satclip_v2_loader
 
-import warning
-warnings.filterwarnings("ignore", category=UserWarning)
+# import warning
+# warnings.filterwarnings("ignore", category=UserWarning)
 
 import sys
 sys.path.append(rf"D:\Code\satclip")
 from exp import infer
+from train import _embed, load_model
+
+
 
 
 SATCLIP_REPO_PATH = rf"D:\Code\satclip\satclip"  # path to your cloned+modified satclip repo
@@ -50,9 +53,9 @@ DATASETS = [
     # [11..23]=regression targets (median income, home value, etc.)
     # DatasetSpec(name="housing", path="data/housing.csv", task="reg", pred=(3, 10), target=(11, 23)),
     # example of a classification target range from a different CSV
-    DatasetSpec(name="Afrobarometer", path=rf"E:\Data\satclip\eval\afrobarometer_location_targets.csv", task="class", pred=(0, 1), target=(2, 24)),
+    # DatasetSpec(name="Afrobarometer", path=rf"E:\Data\satclip\eval\afrobarometer_location_targets.csv", task="class", pred=(0, 1), target=(2, 24)),
     DatasetSpec(name="Airbnb Price", path=rf"E:\Data\satclip\eval\airbnb-price.csv", task="reg", pred=(1, 18), target=(0, 0)),
-    DatasetSpec(name="Crop Yeild", path=rf"E:\Data\satclip\eval\crop-yeild.csv", task="reg", pred=(0, 1), target=(2, 3)),
+    # DatasetSpec(name="Crop Yeild", path=rf"E:\Data\satclip\eval\crop-yeild.csv", task="reg", pred=(0, 1), target=(2, 3)),
     DatasetSpec(name="EarthQuake", path=rf"E:\Data\satclip\eval\earthquake.csv", task="reg", pred=(0, 1), target=(2, 3)),
     DatasetSpec(name="FEMA", path=rf"E:\Data\satclip\eval\fema.csv", task="reg", pred=(22, 23), target=(0, 21)),
     DatasetSpec(name="Wealth Index", path=rf"E:\Data\satclip\eval\relative-wealth-index.csv", task="reg", pred=(1, 2), target=(3, 3)),
@@ -63,48 +66,59 @@ DATASETS = [
 ]
 
 MODELS = [
-    # make_custom_loader(
-    #         name="random-embeddings",
-    #         embed_fn = lambda lon, lat, dim=256: np.random.default_rng(42).standard_normal((len(lon), dim), dtype=np.float32),
-    #     ),
-    # make_custom_loader(
-    #         name="raw-coords",
-    #         embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
-    #     ),
-    # make_satclip_loader(
-    #         name="spherical-harmonics",
-    #         ckpt_path=rf"E:\Weights\satclip\satclip-v2\satclipv2-64dim.ckpt",
-    #         satclip_repo_path=SATCLIP_REPO_PATH,
-    #         spherical_harmonics=1, # If spherical harmonics is 1 then the results of only sphericql harmonics
-    #     ),
-    # make_satclip_loader(
-    #         name="microsoft-satclip",
-    #         ckpt_path=rf"E:\Weights\satclip\microsoft-satclip\satclip-vit16-l10.ckpt",
-    #         satclip_repo_path=SATCLIP_REPO_PATH,
-    #     ),
+    make_custom_loader(
+            name="random-embeddings",
+            embed_fn = lambda lon, lat, dim=256: np.random.default_rng(42).standard_normal((len(lon), dim), dtype=np.float32),
+        ),
+    make_custom_loader(
+            name="raw-coords",
+            embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
+        ),
+    make_satclip_loader(
+            name="spherical-harmonics",
+            ckpt_path=rf"E:\Weights\satclip\satclip-v2\satclipv2-64dim.ckpt",
+            satclip_repo_path=SATCLIP_REPO_PATH,
+            spherical_harmonics=1, # If spherical harmonics is 1 then the results of only sphericql harmonics
+        ),
+    make_satclip_loader(
+            name="microsoft-satclip",
+            ckpt_path=rf"E:\Weights\satclip\microsoft-satclip\satclip-vit16-l10.ckpt",
+            satclip_repo_path=SATCLIP_REPO_PATH,
+        ),
     # make_satclip_loader(
     #         name="satclip-v1",
     #         ckpt_path=rf"E:\Weights\satclip\satclip-v1\satclipv1.ckpt",
     #         satclip_repo_path=SATCLIP_REPO_PATH,
     #         # spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
     #     ),
-    # make_satclip_loader(
-    #         name="satclip-v2-64dim",
-    #         ckpt_path=rf"E:\Weights\satclip\dynamic-image\checkpoints\last-v1.ckpt",
-    #         satclip_repo_path=SATCLIP_REPO_PATH,
-    #     ),
-    # make_custom_loader(
-    #             name="raw-coords",
-    #             embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
-    #         ),
-    # make_satclip_loader(
-    #     name="satclip-v2-164dim-v2+sh",
-    #     ckpt_path=rf"E:\Weights\satclip\satclip-v2\dynamic-image\checkpoints\last-v1.ckpt",
-    #     satclip_repo_path=SATCLIP_REPO_PATH,
-    #     spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
-    # ),
-    make_custom_loader(
-                name="jepa",
-                embed_fn = lambda lon, lat: infer(lat, lon)[0],
-            ),
+    # # make_satclip_loader(
+    # #         name="satclip-v2-64dim",
+    # #         ckpt_path=rf"E:\Weights\satclip\dynamic-image\checkpoints\last-v1.ckpt",
+    # #         satclip_repo_path=SATCLIP_REPO_PATH,
+    # #     ),
+    # # make_satclip_loader(
+    # #             name="satclip-v2-64dim2",
+    # #             ckpt_path=rf"E:\Data\satclip-v2.ckpt",
+    # #             satclip_repo_path=SATCLIP_REPO_PATH,
+    # #         ),
+    # # make_custom_loader(
+    # #             name="raw-coords",
+    # #             embed_fn=lambda lon, lat: __import__("numpy").stack([lon, lat], axis=1),
+    # #         ),
+    # # make_satclip_loader(
+    # #     name="satclip-v2-164dim-v2+sh",
+    # #     ckpt_path=rf"E:\Weights\satclip\satclip-v2\dynamic-image\checkpoints\last-v1.ckpt",
+    # #     satclip_repo_path=SATCLIP_REPO_PATH,
+    # #     spherical_harmonics=2, # If spherical harmonics is 1 then the results of model emb + spherical harmonics
+    # # ),
+    # # make_custom_loader(
+    # #     name = "satclip-v2",
+    # #     embed_fn = lambda lon, lat: _embed(load_model(rf"E:\Data\satclip-v2.ckpt"), lon, lat, "cuda")
+    # # ),
+    make_satclip_v2_loader(
+        name = "satclip v2",
+        model_path=rf"E:\Data\satclip-v2.ckpt",
+        device = "cpu",
+        batch_size=25000
+    )
 ]

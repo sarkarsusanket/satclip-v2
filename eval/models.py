@@ -28,6 +28,8 @@ import torch
 
 sys.path.append(r"D:\Code\satclip\satclip") 
 from positional_encoding import SphericalHarmonics
+sys.path.append(rf"D:\Code\satclip")
+from train import _embed, load_model
 
 
 @dataclass
@@ -62,6 +64,7 @@ def make_satclip_loader(
     from load import get_satclip  # requires the cloned satclip repo on path
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print("Device ", device)
     model = get_satclip(ckpt_path, device=device)
     model.eval()
 
@@ -110,3 +113,60 @@ def make_custom_loader(
     model you already have loaded in memory.
     """
     return EmbeddingModel(name=name, embed_fn=embed_fn)
+
+def make_satclip_v2_loader(
+    name: str,
+    model_path: str,
+    device: str = "cuda",
+    batch_size: int = 4096
+):
+    """
+    Loads SatCLIP once and returns an optimized batch embedding function.
+    
+    Args:
+        model_path: Path to satclip-v2.ckpt
+        device: 'cuda' or 'cpu'
+        batch_size: Number of coordinate pairs to process in a single GPU pass.
+    """
+    # 1. Load model ONCE outside the inference loop
+    print(f"Loading SatCLIP model into memory from {model_path}...")
+    model = load_model(model_path)
+    model.eval()
+    model.to(device)
+    
+    # Enable inference optimizations
+    torch.set_grad_enabled(False)
+
+    def batch_embed(lon, lat):
+        """
+        Expects 1D numpy arrays, lists, or 1D torch Tensors for lon and lat.
+        Returns a single contiguous NumPy array of embeddings.
+        """
+        # Convert inputs to 1D numpy arrays if necessary
+        lon = np.asarray(lon, dtype=np.float32).ravel()
+        lat = np.asarray(lat, dtype=np.float32).ravel()
+        
+        n_samples = len(lon)
+        embeddings = []
+
+        # Process in GPU-friendly chunks to avoid OOM on large datasets
+        for i in range(0, n_samples, batch_size):
+            batch_lon = lon[i : i + batch_size]
+            batch_lat = lat[i : i + batch_size]
+
+            # Stack into shape (N, 2) expected by SatCLIP: [[lon, lat], ...]
+            coords = np.column_stack((batch_lon, batch_lat))
+            
+            # Convert to PyTorch Tensor on GPU in a single operation
+            coords_tensor = torch.from_numpy(coords).to(device, non_blocking=True)
+
+            # Fast forward pass (uses torch.inference_mode for zero overhead)
+            with torch.inference_mode():
+                batch_emb = _embed(model, batch_lon, batch_lat, "cpu")
+
+            embeddings.append(batch_emb)
+
+        # Concatenate all batches back into shape (32156, embedding_dim)
+        return np.vstack(embeddings)
+
+    return EmbeddingModel(name = name, embed_fn = batch_embed)

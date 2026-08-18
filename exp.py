@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from PIL import Image
-from scipy.special import sph_harm as sph_harm_y
+from scipy.special import sph_harm_y
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
